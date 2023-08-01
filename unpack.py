@@ -200,11 +200,21 @@ header, sections, fileparts, filemaps, fname_idxs, filename_offset = parse_binar
 rpack_name = os.path.basename(rpack)
 rpack_name_no_ext = os.path.splitext(rpack_name)[0]
 rpack_path = os.path.dirname(rpack)    
+for idx, fname_idx in enumerate(fname_idxs):
+    #nice! Here is the problem. fname_idx extends further than expected
+    print(f"{idx} : {fname_idx}") 
+# def get_resource_name(file_index, fname_idxs, file_content, filename_offset):
+#     offset = fname_idxs[file_index].offset + filename_offset
+#     filename = file_content[offset:].split(b'\x00')[0]  # Read until null byte
+#     return filename.decode('utf-8')  # Convert bytes to string
+import binascii
 
 def get_resource_name(file_index, fname_idxs, file_content, filename_offset):
     offset = fname_idxs[file_index][0] + filename_offset  # assuming fname_idxs[file_index] is a tuple containing offset
+    print(f"Debug: offset = {offset}, surrounding file_content = {binascii.hexlify(file_content[offset-10:offset+10])}")
     filename = file_content[offset:].split(b'\x00')[0]  # Read until null byte
     return filename.decode('utf-8')  # Convert bytes to string
+
 
 def get_resource_save_path(resource_name, part, is_texture):
     #rather than play with global scope variables, we'll substitute a string as a placeholder
@@ -269,7 +279,8 @@ for i in range(header[8]):  # header.files
         assert sections[fileparts[filemaps[i][5] + j][0]][6] == 0, "Cannot extract compressed files, extraction aborted"  # sections[fileparts[filemaps[i].first_part + j].section_index].packed_size
         # Extract
         is_texture = filemaps[i][2] == 32  # filemaps[i].filetype
-
+        
+        #resource_name = get_resource_name(i, fname_idxs, file_content, header.fname_idx_offset)
         resource_name = get_resource_name(i, fname_idxs, file_content, filename_offset)
 
         savepath = get_resource_save_path(resource_name, j, is_texture)
