@@ -67,7 +67,7 @@ def dds_generate(width, height, mip_count, format, tex_type, depth, file_path):
         64: 8, 65: 8, 66: 8, 68: 8
     }
 
-    # Check if the format is in the dictionary, if yes, apply the mapping
+    # replace switch by mapping from dictionary
     if format in format_mapping:
         bpp = format_mapping[format]
         flags |= DDSD_PITCH
@@ -129,7 +129,7 @@ def dds_generate(width, height, mip_count, format, tex_type, depth, file_path):
         47: 11, 48: 13, 59: 71, 62: 81, 63: 80, 64: 84, 65: 83, 66: 95, 68: 98
     }
 
-    # Check if the format is in the dictionary, if yes, apply the conversion
+    # replace switch by mapping from dictionary
     if format in format_conversion:
         format = format_conversion[format]
     else:
@@ -202,23 +202,13 @@ header, sections, fileparts, filemaps, fname_idxs, filename_offset = parse_binar
 rpack_name = os.path.basename(rpack)
 rpack_name_no_ext = os.path.splitext(rpack_name)[0]
 rpack_path = os.path.dirname(rpack)    
-print('#########################')
-print('#########################')
+
 print('######FNAME_INDICES######')
 for idx, fname_idx in enumerate(fname_idxs):
     print(f"{idx} : {fname_idx}") 
-print('#########################')
-print('#########################')
-print('#########################')
-# def get_resource_name(file_index, fname_idxs, file_content, filename_offset):
-#     offset = fname_idxs[file_index].offset + filename_offset
-#     filename = file_content[offset:].split(b'\x00')[0]  # Read until null byte
-#     return filename.decode('utf-8')  # Convert bytes to string
-import binascii
 
 def get_resource_name(file_index, fname_idxs, file_content, filename_offset):
     offset = fname_idxs[file_index][0] + filename_offset  # assuming fname_idxs[file_index] is a tuple containing offset
-    print(f"Debug: offset = {offset}, surrounding file_content = {binascii.hexlify(file_content[offset-10:offset+10])}")
     filename = file_content[offset:].split(b'\x00')[0]  # Read until null byte
     return filename.decode('utf-8')  # Convert bytes to string
 
