@@ -56,8 +56,8 @@ class FileManager:
 
     def open_file(self, file_path, mode='rb+'):
         if not os.path.exists(file_path):
-            raise ValueError(f"File {file_path} does not exist.")
-        
+            open(file_path, 'wb+').close()  # This will create a new file if it doesn't exist
+
         self.open_files[file_path] = open(file_path, mode)
         self.selected_file = self.open_files[file_path]
     
@@ -72,10 +72,10 @@ class FileManager:
         return file_path in self.open_files
 
     def select_file(self, file_path):
-        if self.find_open_file(file_path):
-            self.selected_file = self.open_files[file_path]
-        else:
-            raise ValueError(f"File {file_path} is not open.")
+        if not self.find_open_file(file_path):
+            self.open_file(file_path, 'rb+')
+        self.selected_file = self.open_files[file_path]
+
 
     def insert_bytes(self, start, size, value=0):
         self.selected_file.seek(start)
@@ -86,7 +86,8 @@ class FileManager:
         data = struct.pack('<I', value)  # Use '<' for little-endian byte order (same as 010 Editor)
         self.selected_file.seek(pos)
         self.selected_file.write(data)
-        
+
+
     def save_file_range(self, file_path, start, size):
         if not self.find_open_file(file_path):
             raise ValueError(f"File {file_path} is not open.")
