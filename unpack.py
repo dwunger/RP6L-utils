@@ -48,7 +48,7 @@ def dds_generate(width, height, mip_count, format, tex_type, depth, file_path):
     hasFOURCC = 0
 
     # Insert 128 bytes of 0 at the beginning of the file
-    fm.insert_bytes(file_path, 0, 128, 0)
+    fm.insert_bytes( 0, 128, 0)
 
     # Reset these variables as we don't have corresponding definitions in this context
     isDXT10 = 0
@@ -99,7 +99,7 @@ def dds_generate(width, height, mip_count, format, tex_type, depth, file_path):
         fm.write_uint(84, 827611204)
     else:
         fm.write_uint(84, 808540228)
-        fm.insert_bytes(file_path, 128, 20, 0)
+        fm.insert_bytes( 128, 20, 0)
 
     # caps
     flags = DDSCAPS_TEXTURE
@@ -299,14 +299,15 @@ for i in range(header[8]):  # header.files
                 fm.select_file(rpack)
                 open_file_exist(savepath + ".header")
                 fm.save_file_range(savepath + ".header", file_offset, file_size)
-                header_size = fm.read_uint(file_offset + 8, rpack)
-                header_type = fm.read_uint(file_offset + 64, rpack)
-                width = fm.read_ushort(file_offset + 64, rpack)
-                height = fm.read_ushort(file_offset + 66, rpack)
-                format = fm.read_ubyte(file_offset + 70, rpack)
-                depth = fm.read_ubyte(file_offset + 68, rpack)
-                mip_count = fm.read_ubyte(file_offset + 71, rpack) >> 2
-                tex_type = fm.read_ubyte(file_offset + 71, rpack) & 0x03  # 0 = 2d, 1 = cubemap, 2 = 3d
+                fm.select_file(rpack)  # Replace rpack with the actual file path if it's not the correct variable
+                header_size = fm.read_uint(file_offset + 8)
+                header_type = fm.read_uint(file_offset + 64)
+                width = fm.read_ushort(file_offset + 64)
+                height = fm.read_ushort(file_offset + 66)
+                format = fm.read_ubyte(file_offset + 70)
+                depth = fm.read_ubyte(file_offset + 68)
+                mip_count = fm.read_ubyte(file_offset + 71) >> 2
+                tex_type = fm.read_ubyte(file_offset + 71) & 0x03  # 0 = 2d, 1 = cubemap, 2 = 3d
             else:
                 if header_type != 0:
                     # fm.save_file_range(savepath + ".dds", file_offset, file_size, rpack)
