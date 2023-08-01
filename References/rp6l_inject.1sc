@@ -1,0 +1,594 @@
+void OpenFileExist(char path[]) {
+    if (FindOpenFile(path) != -1) {
+        FileSelect(FindOpenFile(path));
+    } else {
+        FileOpen(path, false, "Hex", false);
+    }
+}
+
+uint32 ByteSwap32( uint32 value) {
+    uint32 iLittleE = ((value & 0xFF) << 24)
+                        | ((value & 0xFF00) << 8)
+                        | ((value >> 8) & 0xFF00)
+                        | (value >> 24);
+    return iLittleE;
+}
+
+char modifier[] = "THIS FILE HAS BEEN MODIFIED";
+//char backup_string[] = "METADATA BACKUP";
+
+
+//char rpack[] = InputOpenFileName("Select a file to modify", "rpack (*.rpack)", "");
+//Assert((Strcmp(rpack, "") != 0), "no rpack file was selected.");
+
+if (GetFileNum() == -1) {
+    MessageBox(idOk, "Script", "%s", "You haven't selected a rpack file, please select a rpack.");
+    char rpack[] = InputOpenFileName("Select a rpack to modify", "rpack (*.rpack)", "");
+    Assert((Strcmp(rpack, "") != 0), "no rpack file was selected.");
+} else {
+    char rpack[] = GetFileName();
+}
+
+char repack_folder[] = InputDirectory("Select a folder of files to inject to rpack", "");
+Assert((Strcmp(repack_folder, "") != 0), "no folder was selected.");
+
+OpenFileExist(rpack);
+
+LittleEndian();
+RunTemplate("rp6l.bt");
+
+uint meta_size = 20 * header.sections + 16 * header.parts;
+
+uchar meta_backup[meta_size];
+uchar buffer2[120000000];
+int sectionSize[header.sections];
+
+string s;
+string inject_filename;
+int IsTexture = 0;
+uint64 isFileModified = 0, isBackuped = 0, newOffset = 0, newSize = 0, newSectionSize = 0;
+int i,j,l,k,index;
+uint64 file_offset,filesize,filename_offset,filename_end, meta_start;
+filename_offset = 36 + 20 * header.sections + 16 * header.parts + header.files * (12 + 4);
+filename_end = filename_offset + header.fnames_siez;
+//meta_start = filename_end;
+
+for (i = 0; i < header.sections; i++) {
+	meta_start += section[i].unpackedsize;
+	sectionSize[i] = section[i].unpackedsize;
+}
+
+uint padding, original_padding, headerType, tex_offset, format, original_format, flags, fourCC, RGBBitCount, RBitMask, GBitMask, BBitMask, ABitMask;
+
+ushort width, height;
+ubyte tex_type, mip_count, isDXT10, isPassThrough;
+
+//Create a local file for meta once only
+if (FileExists(rpack + ".meta")) {
+	OpenFileExist(rpack + ".meta");
+	meta_start = ReadUInt64(0);
+	
+	FileClose();
+	OpenFileExist(rpack);
+	isFileModified = FindFirst(modifier ,true, true, 0, 0.0, 1, meta_start, Strlen(modifier));
+	
+	if (isFileModified > 0) {
+	// restore backup data
+        OpenFileExist(rpack + ".meta");
+        ReadBytes(meta_backup, 8, meta_size);
+        OpenFileExist(rpack);
+		WriteBytes(meta_backup, 36, meta_size);
+        if (FileSize() > meta_start) {
+		    DeleteBytes(meta_start, FileSize() - meta_start);
+        }
+		FileSave();
+	} else {	// file may get updated by developer
+		meta_start = FileSize();
+		FileSaveRange(rpack + ".meta", 36, meta_size);
+		OpenFileExist(rpack + ".meta");
+		//save new data's offset
+		InsertBytes(0, 8, 0);
+		WriteUInt64(0, meta_start);
+		FileSave();
+		FileClose();
+		OpenFileExist(rpack);
+	}
+} else {
+	meta_start = FileSize();
+	FileSaveRange(rpack + ".meta", 36, meta_size);
+	OpenFileExist(rpack + ".meta");
+	//save new data's offset
+	InsertBytes(0, 8, 0);
+	WriteUInt64(0, meta_start);
+	FileSave();
+	FileClose();
+	OpenFileExist(rpack);
+}
+
+
+
+/*
+isBackuped = FindFirst(backup_string, 1, 1, 0, 0, 1, );
+if (isBackuped < 0) {
+    ReadBytes(meta_backup, 36, meta_size);
+    WriteString(FileSize(), backup_string);
+    InsertBytes(FileSize(), 1, 0);
+    WriteBytes(meta_backup, FileSize(), meta_size);
+	padding = 0;
+	if ((FileSize()) % 16 != 0) {
+		padding = 16 - (FileSize()) % 16;
+	}
+    InsertBytes(FileSize(), padding, 0);
+}
+*/
+/*
+isFileModified = FindFirst(modifier);
+
+// test if file has been modified by script before
+if (isFileModified > 0) {
+    DeleteBytes(isFileModified, FileSize() - isFileModified);
+    //s = ReadString(isFileModified);
+    //Printf("%s", s);
+    //restore meta
+    WriteBytes(meta_backup, 36, meta_size);
+}
+
+WriteString(FileSize(), modifier);
+InsertBytes(FileSize(), 5, 0);
+*/
+
+string GetResourceName(int fileIndex) {
+    string filename = ReadString(fname_idx[fileIndex].offset + filename_offset);
+    return filename;
+}
+
+
+
+uint64 f_offset;
+int GetFileIndex(string Filename) {
+	//f_offset = FindFirst(Filename, true, true, 0, 0.0, 1, filename_offset, header.fnames_siez);
+    TFindResults fa = FindAll(Filename, true, true, 0, 0.0, 1, filename_offset, header.fnames_siez);
+	if (fa.count > 0) {
+        for (j = 0; j < fa.count; j++) {
+            if (ReadUByte(fa.start[j] + fa.size[j]) == 0) { //make sure it matches null terminated string
+                f_offset = fa.start[j];
+		        f_offset -= filename_offset;
+		        for (k = 0; k < header.fnames; k++) {
+			        if (f_offset == fname_idx[k].offset) {
+				        return k;
+			        }
+		        }
+            }
+        }
+		// already conditioned in search
+		//if (!(f_offset > filename_end)) {
+
+		//}
+	} else {
+		return -1;
+	}
+}
+
+OpenFileExist(rpack);
+//RunTemplate("rp6l.bt");
+
+TFileList fl = FindFiles( repack_folder, "*.desc" );
+if (fl.filecount > 0) {
+	WriteString(FileSize(), modifier);
+	InsertBytes(FileSize(), 5, 0);
+	FileSave();
+    // find the fileIndex
+    for (i = 0; i < fl.filecount; i++) {
+        inject_filename = SubStr(fl.file[i].filename, 0, Strlen(fl.file[i].filename) - 5);
+		index = GetFileIndex(inject_filename);
+		//Printf("%s\n", GetResourceName(index));
+		if (index != -1) {
+			//Printf("ok");
+			for (l = 0; l < filemap[index].partsCount; l++) {
+				original_padding = 0;
+				
+				if ((filepart[l + filemap[index].firstPart].size) % 16 != 0) {
+					original_padding = 16 - (filepart[l + filemap[index].firstPart].size) % 16;
+				}
+				
+				
+				if (filemap[index].filetype != 32) {	//not texture resource
+					OpenFileExist(repack_folder + inject_filename + "\\" + SPrintf( s, "%d", l) + "_" + inject_filename);
+					filesize = FileSize();
+					ReadBytes(buffer2, 0, filesize);
+					FileClose();
+
+					padding = 0;
+					if ((filesize) % 16 != 0) {
+						padding = 16 - (filesize) % 16;
+					}
+					
+					OpenFileExist(rpack);
+					
+					//get new size and offset
+					newOffset = (FileSize() >> 4) - section[filepart[l + filemap[index].firstPart].sectionIndex].offset;
+					newSize = filesize;
+					newSectionSize = section[filepart[l + filemap[index].firstPart].sectionIndex].unpackedsize - filepart[l + filemap[index].firstPart].size + filesize - original_padding + padding;
+					//set
+					filepart[l + filemap[index].firstPart].offset = newOffset;
+					filepart[l + filemap[index].firstPart].size = newSize;
+					section[filepart[l + filemap[index].firstPart].sectionIndex].unpackedsize = newSectionSize;
+					
+					
+					InsertBytes(FileSize(), filesize + padding, 0);
+					WriteBytes(buffer2, FileSize() - filesize - padding, filesize);
+				}
+				else
+				{
+					if (l == 0) {
+						OpenFileExist(repack_folder + inject_filename + "\\" + inject_filename + ".header");
+						filesize = ReadUInt(8);
+						headerType = ReadUInt(64);
+						tex_type = (ReadUByte(71) & 0x03);
+						isPassThrough = 0;
+						
+						original_format = ReadUByte(70);
+						if (original_format == 5 || original_format == 32) {
+							isPassThrough = 1;
+						}
+						
+						//format = original_format;
+						if (headerType != 0) {
+							OpenFileExist(repack_folder + inject_filename + "\\" + inject_filename + ".dds");
+							//too slow
+							//RunTemplate("DDS.bt");
+							
+							LittleEndian();
+							width = ReadUInt(16);
+							height = ReadUInt(12);
+							mip_count = ReadUInt(28);
+							fourCC = ReadUInt(84);
+							flags = ReadUInt(80);
+							RGBBitCount = ReadUInt(88);
+							RBitMask = (ReadUInt(92));
+							GBitMask = (ReadUInt(96));
+							BBitMask = (ReadUInt(100));
+							ABitMask = (ReadUInt(104));
+/*							
+							Printf("%u\n", flags);
+							Printf("%u\n", RBitMask == 0x000000ff);
+							Printf("%u\n", GBitMask == 0x0000ff00);
+							Printf("%u\n", BBitMask == 0x00ff0000);
+*/							
+							if (flags & 0x00000040)	//DDS_RGB         
+							{
+								switch (RGBBitCount)
+								{
+								case 32:
+									if (RBitMask == 0x000000ff && GBitMask == 0x0000ff00 && BBitMask == 0x00ff0000 && ABitMask == 0xff000000)	//DXGI_FORMAT_R8G8B8A8_UNORM
+									{
+										if (isPassThrough == 1) {
+											format == 32;
+											//break;
+										} else {
+											format = 38;
+											//break;
+										}
+									} 
+									else if (RBitMask == 0x0000ffff && GBitMask == 0xffff0000 && BBitMask == 0x00000000 && ABitMask == 0x00000000)	//DXGI_FORMAT_R16G16_UNORM
+									{
+										format = 20;
+										//break;
+									}
+									else	
+									{
+										Assert(0, inject_filename + ": Unsupported DDS format detected.");
+										//break;
+									}
+									break;
+								case 24:
+								case 16:
+									Assert(0, inject_filename + ": Unsupported DDS format detected.");
+									break;
+								}
+							}
+							else if (flags & 0x00020000)	//DDS_LUMINANCE    
+							{
+								if (8 == RGBBitCount)
+								{
+									if (RBitMask == 0x000000ff && GBitMask == 0x00000000 && BBitMask == 0x00000000 && ABitMask == 0x00000000)	//DXGI_FORMAT_R8_UNORM
+									{
+										if (isPassThrough == 1) {
+											format = 5;
+										} else {
+											format = 1;
+										}
+									}
+								}
+								
+								if (16 == RGBBitCount)
+								{
+									if (RBitMask == 0x0000ffff && GBitMask == 0x00000000 && BBitMask == 0x00000000 && ABitMask == 0x00000000)	//DXGI_FORMAT_R16_UNORM
+									{
+										format = 7;
+									}
+									if (RBitMask == 0x0000ffff && GBitMask == 0x00000000 && BBitMask == 0x00000000 && ABitMask == 0x0000ff00)	//DXGI_FORMAT_R8G8_UNORM
+									{
+										format = 15;
+									}
+								}
+							}
+							else if (flags & 0x00000002)	//DDS_ALPHA    
+							{
+								if (8 == RGBBitCount)	//DXGI_FORMAT_A8_UNORM
+								{
+									Assert(0, inject_filename + ": Unsupported DDS format detected.");
+								}
+							}
+							else if (flags & 0x00000004)	//DDS_FOURCC
+							{
+								//Printf("fourCC");
+								if (827611204 == fourCC)	//DXT1
+								{
+									format = 59;
+								}
+								else if (861165636 == fourCC)	//DXT3
+								{
+									format = 60;
+								}
+								else if (894720068 == fourCC)	//DXT5
+								{
+									format = 61;
+								}
+								else if (844388420 == fourCC)	//DXT2
+								{
+									format = 60;
+								}
+								else if (877942852 == fourCC)	//DXT4
+								{
+									format = 61;
+								}
+								else if (826889281 == fourCC)	//ATI1
+								{
+									format = 63;
+								}
+								else if (1429488450 == fourCC)	//BC4U
+								{
+									format = 63;
+								}
+								else if (1395934018 == fourCC)	//BC4S
+								{
+									format = 62;
+								}
+								else if (843666497 == fourCC)	//ATI2
+								{
+									format = 65;
+								}
+								else if (1429553986 == fourCC)	//BC5U
+								{
+									format = 65;
+								}
+								else if (1395999554 == fourCC)	//BC5S
+								{
+									format = 64;
+								}
+								else if (1195525970 == fourCC)	//RGBG
+								{
+									Assert(0, inject_filename + ": Unsupported DDS format detected.");
+								}
+								else if (1111970375 == fourCC)	//GRGB
+								{
+									Assert(0, inject_filename + ": Unsupported DDS format detected.");
+								}
+								else if (808540228 == fourCC)	//DX10
+								{
+									switch(ReadUInt(128))
+									{
+									case 61:
+										if (isPassThrough) {
+											format = 5;
+										} else {
+											format = 1;
+										}
+										break;
+									case 63:
+										format = 1;
+										break;
+									case 56:
+										format = 7;
+										break;
+									case 58:
+										format = 8;
+										break;
+									case 59:
+										format = 10;
+										break;
+									case 49:
+										format = 15;
+										break;
+									case 51:
+										format = 16;
+										break;
+									case 50:
+										format = 17;
+										break;
+									case 35:
+										format = 20;
+										break;
+									case 37:
+										format = 21;
+										break;
+									case 36:
+										format = 22;
+										break;
+									case 28:
+									case 29:
+										if (isPassThrough) {
+											format = 32;
+										} else {
+											format = 38;
+										}
+										break;
+									case 31:
+										format = 39;
+										break;
+									case 30:
+										format = 40;
+										break;
+									case 10:
+										format = 46;
+										break;
+									case 11:
+										format = 47;
+										break;
+									case 13:
+										format = 48;
+										break;
+									case 71:
+									case 72:
+										format = 59;
+										break;
+									case 74:
+									case 75:
+										format = 60;
+										break;
+									case 77:
+									case 78:
+										format = 61;
+										break;
+									case 81:
+										format = 62;
+										break;
+									case 80:
+										format = 63;
+										break;
+									case 84:
+										format = 64;
+										break;
+									case 83:
+										format = 65;
+										break;
+									case 95:
+										format = 66;
+										break;
+									case 98:
+										format = 68;
+										break;
+									default:
+										Assert(0, inject_filename + ": Unsupported DDS format detected.");
+										break;
+									}
+								}
+								else
+								{
+									switch(fourCC)
+									{
+									case 36:	//DXGI_FORMAT_R16G16B16A16_UNORM
+										format = 47;
+										break;
+									case 110:	//DXGI_FORMAT_R16G16B16A16_SNORM
+										format = 48;
+										break;
+									case 111:	//DXGI_FORMAT_R16_FLOAT
+										format = 6;
+										break;
+									case 112:	//DXGI_FORMAT_R16G16_FLOAT
+										format = 19;
+										break;
+									case 113:	//DXGI_FORMAT_R16G16B16A16_FLOAT
+										format = 46;
+										break;
+									default:
+										Assert(0, inject_filename + ": Unsupported DDS format detected.");
+										break;
+									}
+								}
+							}
+							else
+							{
+								Assert(0, inject_filename + ": Unsupported DDS format detected.");
+							}
+							/*
+							if (format != original_format) {
+								Printf("%s/n", repack_folder + filename + "\\" + filename);
+							}
+							*/
+							//Printf("%u\n", format);
+							
+							FileClose();
+							//update the header
+							OpenFileExist(repack_folder + inject_filename + "\\" + inject_filename + ".header");
+							WriteUShort(64, (ushort)width);
+							WriteUShort(66, (ushort)height);
+							WriteUByte(71, (mip_count << 2) | tex_type);
+							WriteUByte(70, format);
+							FileSave();
+						}
+						
+
+						ReadBytes(buffer2, 0, filesize);
+						FileClose();
+						
+
+						padding = 0;
+						if ((filesize) % 16 != 0) {
+							padding = 16 - (filesize) % 16;
+						}
+						
+						OpenFileExist(rpack);
+						
+						//get new size and offset
+						newOffset = (FileSize() >> 4) - section[filepart[l + filemap[index].firstPart].sectionIndex].offset;
+						newSize = filesize;
+						
+						//Printf("%u\n", newSize);
+						
+						newSectionSize = section[filepart[l + filemap[index].firstPart].sectionIndex].unpackedsize - filepart[l + filemap[index].firstPart].size + filesize - original_padding + padding;
+						
+						//Printf("%u %u \n", filepart[l + filemap[index].firstPart].size, l + filemap[index].firstPart);
+						
+						//set
+						filepart[l + filemap[index].firstPart].offset = newOffset;
+						filepart[l + filemap[index].firstPart].size = newSize;
+						section[filepart[l + filemap[index].firstPart].sectionIndex].unpackedsize = newSectionSize;
+						
+						
+						InsertBytes(FileSize(), filesize + padding, 0);
+						WriteBytes(buffer2, FileSize() - filesize - padding, filesize);
+					} else {
+						OpenFileExist(repack_folder + inject_filename + "\\" + inject_filename + ".dds");
+						filesize = FileSize();
+						
+						//read fourcc
+						tex_offset = (ReadUInt(84) == 808540228) ? 148 : 128;
+
+						ReadBytes(buffer2, tex_offset, filesize - tex_offset);
+						FileClose();
+
+						padding = 0;
+						if ((filesize - tex_offset) % 16 != 0) {
+							padding = 16 - (filesize - tex_offset) % 16;
+						}
+						filesize -= tex_offset;
+						
+						OpenFileExist(rpack);
+						
+						//get new size and offset
+						newOffset = (FileSize() >> 4) - section[filepart[l + filemap[index].firstPart].sectionIndex].offset;
+						newSize = filesize;
+						newSectionSize = section[filepart[l + filemap[index].firstPart].sectionIndex].unpackedsize - filepart[l + filemap[index].firstPart].size + filesize - original_padding + padding;
+						//set
+						filepart[l + filemap[index].firstPart].offset = newOffset;
+						filepart[l + filemap[index].firstPart].size = newSize;
+						section[filepart[l + filemap[index].firstPart].sectionIndex].unpackedsize = newSectionSize;
+						
+						
+						InsertBytes(FileSize(), filesize + padding, 0);
+						WriteBytes(buffer2, FileSize() - filesize - padding, filesize);
+					}
+				}
+			}
+		}
+    }
+	OpenFileExist(rpack);
+	FileSave();
+    MessageBox(idOk, "Script", "%s", "Injection Completed.");
+}
+
+    
+

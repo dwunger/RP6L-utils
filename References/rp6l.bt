@@ -1,0 +1,61 @@
+LittleEndian();
+struct {
+    uint sig;
+    uint ver;
+    //flags for compression mode?
+    ubyte c1;
+    ubyte c2;
+    ubyte c3;
+    ubyte c4;
+    uint parts;
+    uint sections;
+    uint files;
+    uint fnames_siez;
+    uint fnames;
+    uint alignment; //maybe for offset bitshift
+} header;
+
+
+struct {
+    ubyte filetype;
+    ubyte type2;
+    ubyte type3;
+    ubyte type4;
+    //offset = offset << 4
+    uint offset;
+    uint unpackedsize;
+    uint packedsize;
+    ushort resoucecount;
+    ushort unk;
+} section[header.sections];
+
+struct {
+    //dunno if this should be ushort or ubyte
+    ubyte sectionIndex;
+    ubyte unk1;
+    ushort fileIndex;
+    //offset = offset << 4
+    uint offset;
+    //maybe uint64?
+    uint size;
+    uint unk2;
+} filepart[header.parts];
+
+struct {
+    //maybe ushort?
+    ubyte partsCount;
+    ubyte unk1;
+    ubyte filetype;
+    //maybe always preloaded/Streaming?
+    ubyte unk2;
+    uint fileIndex;
+    uint firstPart;
+} filemap[header.fnames];
+
+struct {
+    uint offset;
+} fname_idx[header.fnames];
+
+//local uint64 fname_off = FTell();
+//local uint i = 0,j;
+

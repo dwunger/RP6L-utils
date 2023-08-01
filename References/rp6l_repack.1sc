@@ -1,0 +1,647 @@
+char repack_folder[] = InputDirectory("Select a folder to repack", "");
+//Printf("%s", FileNameGetBase(SubStr(repack_folder, 0, Strlen(repack_folder) - 1 )));
+int i,j;
+uint partcount, accum_partcount = 0;
+//uchar buffer[20000000+80];
+//buffer for general files, max file size in dl2 = 110855208
+uchar buffer2[120000000];
+string s;
+//Printf("%s\n", repack_folder);
+//Printf("%i\n", fl.filecount);
+//uint test[fl.filecount];
+int IsTexture = 0;
+
+uint32 ByteSwap32( uint32 value) {
+    uint32 iLittleE = ((value & 0xFF) << 24)
+                        | ((value & 0xFF00) << 8)
+                        | ((value >> 8) & 0xFF00)
+                        | (value >> 24);
+    return iLittleE;
+}
+
+void OpenFileExist(char path[]) {
+    if (FindOpenFile(path) != -1) {
+        FileSelect(FindOpenFile(path));
+    } else {
+        FileOpen(path, false, "Hex", false);
+    }
+}
+
+typedef struct {
+    //dunno if this should be ushort or ubyte
+    ubyte sectionIndex;
+    ubyte unk1;
+    ushort fileIndex;
+    //offset = offset << 4
+    uint64 offset;
+    //maybe uint64?
+    uint size;
+    uint unk2;
+} filepart;
+	
+typedef struct {
+    //maybe ushort?
+    ubyte partsCount;
+    ubyte unk1;
+    ubyte filetype;
+    //maybe always preloaded/Streaming?
+    ubyte unk2;
+    uint fileIndex;
+    uint firstPart;
+} filemap;
+
+
+if (Strcmp(repack_folder, "") != 0) {
+    TFileList fl = FindFiles( repack_folder, "*.desc" );
+    OpenFileExist(repack_folder + "header.bin");
+    partcount = ReadUInt(12);
+    uint64 list_section[ReadUInt(16) * 8];
+    ubyte list_section_unk[ReadUInt(16)];
+    /*
+    [0] filetype;
+    [1] type2;
+    [2] type3;
+    [3] type4;
+    [4] offset;
+    [5] unpackedsize;
+    [6] packedsize;
+    [7] resoucecount;
+    [8] unk
+    */
+    OpenFileExist(repack_folder + "section.bin");
+    uint sectioncount = ReadUByte(0);
+    for (i = 0; i < sectioncount; i++) {
+        list_section[0 + i*8] = ReadUByte(1 + 5*i); //filetype
+        list_section[1 + i*8] = ReadUByte(2 + 5*i); //type2
+        list_section[2 + i*8] = ReadUByte(3 + 5*i); //type3
+        list_section[3 + i*8] = ReadUByte(4 + 5*i); //type4
+        list_section[6 + i*8] = 0; //packedsize
+        list_section[7 + i*8] = 0; //resoucecount
+        list_section_unk[i] = ReadUByte(5 + 5*i);
+
+        if (FindOpenFile(repack_folder + SPrintf( s, "%d", i) + ".temp") != -1) {
+            FileSelect(FindOpenFile(repack_folder + SPrintf( s, "%d", i) + ".temp"));
+            FileClose();
+        }
+        DeleteFile(repack_folder + SPrintf( s, "%d", i) + ".temp");
+        FileNew("Hex", true);
+        FileSave(repack_folder + SPrintf( s, "%d", i) + ".temp");
+        OpenFileExist(repack_folder + "section.bin");
+    }
+    FileClose();
+
+    if (FindOpenFile(repack_folder + "filename.temp") != -1) {
+        FileSelect(FindOpenFile(repack_folder + "filename.temp"));
+        FileClose();
+    }
+    DeleteFile(repack_folder + "filename.temp");
+    FileNew("Hex", true);
+    FileSave(repack_folder + "filename.temp");
+    //DeleteFile(repack_folder + "0.temp");
+    //Printf("%i\n", list_section[8*8 + 2]);
+    
+    //uint list_filemap[fl.filecount * 6];
+	local filemap list_filemap[fl.filecount];
+    /*
+    [0] partsCount;
+    [1] unk1;
+    [2] filetype;
+    [3] unk2;
+    [4] fileIndex;
+    [5] firstPart;
+    */
+    //uint64 list_filepart[partcount * 6];
+	local filepart list_filepart[partcount];
+    /*
+    [0] sectionIndex;
+    [1] unk1;
+    [2] fileIndex;
+    [3] offset;
+    [4] size;
+    [5] unk2;
+    */
+    //Printf("%s", repack_folder + fl.file[2].filename);
+    uint list_fname_idx[fl.filecount];
+    /*
+    [0] offset;
+    */
+
+    uint64 list_section_totalsize[sectioncount];
+    
+    char filename[];
+    uint64 filesize,ptr;
+    uint padding, headerType, tex_offset, format, original_format, flags, fourCC, RGBBitCount, RBitMask, GBitMask, BBitMask, ABitMask;
+    uint64 filename_offset;
+
+    ushort width, height;
+	ubyte tex_type, mip_count, isDXT10, isPassThrough;
+    filename_offset = 36 + 20 * sectioncount + 16 * partcount + fl.filecount * (12 + 4);
+
+    for (i = 0; i < fl.filecount; i++) {
+        OpenFileExist(repack_folder + fl.file[i].filename);
+        list_filemap[i].partsCount = ReadUByte(0);   //partsCount
+        list_filemap[i].unk1 = 0;
+        list_filemap[i].filetype = ReadUByte(1);   //filetype
+        list_filemap[i].unk2 = ReadUByte(2);   //unk2
+        list_filemap[i].fileIndex = i;    //fileIndex
+        list_filemap[i].firstPart = accum_partcount;    //firstPart
+
+        filename = SubStr(fl.file[i].filename, 0, Strlen(fl.file[i].filename) - 5);
+        if (i < 1) {
+            list_fname_idx[i] = 0;
+        } else {
+            list_fname_idx[i] = list_fname_idx[i - 1] + Strlen(fl.file[i - 1].filename) - 5 + 1;
+        }
+        OpenFileExist(repack_folder + "filename.temp");
+        InsertBytes(list_fname_idx[i], Strlen(filename) + 1, 0);
+        WriteBytes(filename, list_fname_idx[i], Strlen(filename));
+
+        
+        for (j = 0; j < list_filemap[i].partsCount; j++) {
+            OpenFileExist(repack_folder + fl.file[i].filename);
+            list_filepart[(j + accum_partcount)].sectionIndex = ReadUByte(3 + 2*j);    //sectionIndex
+            list_filepart[(j + accum_partcount)].unk1 = ReadUByte(4 + 2*j);    //unk1
+            list_filepart[(j + accum_partcount)].fileIndex = i;    //fileIndex
+            list_filepart[(j + accum_partcount)].unk2 = 0;    //unk2
+
+            list_section[7 + (ReadUByte(3 + 2*j))*8] += 1;  //resoucecount
+
+            
+            //Write to each section's temp file
+            if (list_filemap[i].filetype != 32) {  //not texture resource
+                OpenFileExist(repack_folder + filename + "\\" + SPrintf( s, "%d", j) + "_" + filename);
+                filesize = FileSize();
+                ReadBytes(buffer2, 0, filesize);
+                FileClose();
+
+                padding = 0;
+                if ((filesize) % 16 != 0) {
+                    padding = 16 - (filesize) % 16;
+                    
+                }
+                list_filepart[(j + accum_partcount)].offset = list_section_totalsize[list_filepart[(j + accum_partcount)].sectionIndex]; //offset
+            
+                list_section_totalsize[list_filepart[(j + accum_partcount)].sectionIndex] += filesize + padding;
+
+                list_filepart[(j + accum_partcount)].size = filesize; //size
+
+                OpenFileExist(repack_folder + SPrintf( s, "%d", list_filepart[(j + accum_partcount)].sectionIndex) + ".temp");
+                InsertBytes(list_filepart[(j + accum_partcount)].offset, filesize + padding, 0);
+                WriteBytes(buffer2, list_filepart[(j + accum_partcount)].offset, filesize);
+                
+            } else {
+                if (j == 0) {
+                    OpenFileExist(repack_folder + filename + "\\" + filename + ".header");
+                    filesize = ReadUInt(8);
+                    headerType = ReadUInt(64);
+					tex_type = (ReadUByte(71) & 0x03);
+					isPassThrough = 0;
+					
+                    original_format = ReadUByte(70);
+					if (original_format == 5 || original_format == 32) {
+						isPassThrough = 1;
+					}
+					
+					//format = original_format;
+                    if (headerType != 0) {
+                        OpenFileExist(repack_folder + filename + "\\" + filename + ".dds");
+						//too slow
+						//RunTemplate("DDS.bt");
+						
+						LittleEndian();
+                        width = ReadUInt(16);
+                        height = ReadUInt(12);
+						mip_count = ReadUInt(28);
+						fourCC = ReadUInt(84);
+						flags = ReadUInt(80);
+						RGBBitCount = ReadUInt(88);
+						RBitMask = ByteSwap32(ReadUInt(92));
+						GBitMask = ByteSwap32(ReadUInt(96));
+						BBitMask = ByteSwap32(ReadUInt(100));
+						ABitMask = ByteSwap32(ReadUInt(104));
+						
+						//Printf("%u\n", flags);
+						
+						if (flags & 0x00000040)	//DDS_RGB         
+						{
+							switch (RGBBitCount)
+							{
+							case 32:
+								if (RBitMask == 0x000000ff && GBitMask == 0x0000ff00 && BBitMask == 0x00ff0000 && ABitMask == 0xff000000)	//DXGI_FORMAT_R8G8B8A8_UNORM
+								{
+									if (isPassThrough == 1) {
+										format == 32;
+										//break;
+									} else {
+										format = 38;
+										//break;
+									}
+								} 
+								else if (RBitMask == 0x0000ffff && GBitMask == 0xffff0000 && BBitMask == 0x00000000 && ABitMask == 0x00000000)	//DXGI_FORMAT_R16G16_UNORM
+								{
+									format = 20;
+									//break;
+								}
+								else	
+								{
+									Assert(0, "Unsupported DDS format detected.");
+									//break;
+								}
+								break;
+							case 24:
+							case 16:
+								Assert(0, "Unsupported DDS format detected.");
+								break;
+							}
+						}
+						else if (flags & 0x00020000)	//DDS_LUMINANCE    
+						{
+							if (8 == RGBBitCount)
+							{
+								if (RBitMask == 0x000000ff && GBitMask == 0x00000000 && BBitMask == 0x00000000 && ABitMask == 0x00000000)	//DXGI_FORMAT_R8_UNORM
+								{
+									if (isPassThrough == 1) {
+										format = 5;
+									} else {
+										format = 1;
+									}
+								}
+							}
+							
+							if (16 == RGBBitCount)
+							{
+								if (RBitMask == 0x0000ffff && GBitMask == 0x00000000 && BBitMask == 0x00000000 && ABitMask == 0x00000000)	//DXGI_FORMAT_R16_UNORM
+								{
+									format = 7;
+								}
+								if (RBitMask == 0x0000ffff && GBitMask == 0x00000000 && BBitMask == 0x00000000 && ABitMask == 0x0000ff00)	//DXGI_FORMAT_R8G8_UNORM
+								{
+									format = 15;
+								}
+							}
+						}
+						else if (flags & 0x00000002)	//DDS_ALPHA    
+						{
+							if (8 == RGBBitCount)	//DXGI_FORMAT_A8_UNORM
+							{
+								Assert(0, "Unsupported DDS format detected.");
+							}
+						}
+						else if (flags & 0x00000004)	//DDS_FOURCC
+						{
+							//Printf("fourCC");
+							if (827611204 == fourCC)	//DXT1
+							{
+								format = 59;
+							}
+							else if (861165636 == fourCC)	//DXT3
+							{
+								format = 60;
+							}
+							else if (894720068 == fourCC)	//DXT5
+							{
+								format = 61;
+							}
+							else if (844388420 == fourCC)	//DXT2
+							{
+								format = 60;
+							}
+							else if (877942852 == fourCC)	//DXT4
+							{
+								format = 61;
+							}
+							else if (826889281 == fourCC)	//ATI1
+							{
+								format = 63;
+							}
+							else if (1429488450 == fourCC)	//BC4U
+							{
+								format = 63;
+							}
+							else if (1395934018 == fourCC)	//BC4S
+							{
+								format = 62;
+							}
+							else if (843666497 == fourCC)	//ATI2
+							{
+								format = 65;
+							}
+							else if (1429553986 == fourCC)	//BC5U
+							{
+								format = 65;
+							}
+							else if (1395999554 == fourCC)	//BC5S
+							{
+								format = 64;
+							}
+							else if (1195525970 == fourCC)	//RGBG
+							{
+								Assert(0, "Unsupported DDS format detected.");
+							}
+							else if (1111970375 == fourCC)	//GRGB
+							{
+								Assert(0, "Unsupported DDS format detected.");
+							}
+							else if (808540228 == fourCC)	//DX10
+							{
+								switch(ReadUInt(128))
+								{
+								case 61:
+									if (isPassThrough) {
+										format = 5;
+									} else {
+										format = 1;
+									}
+									break;
+								case 63:
+									format = 1;
+									break;
+								case 56:
+									format = 7;
+									break;
+								case 58:
+									format = 8;
+									break;
+								case 59:
+									format = 10;
+									break;
+								case 49:
+									format = 15;
+									break;
+								case 51:
+									format = 16;
+									break;
+								case 50:
+									format = 17;
+									break;
+								case 35:
+									format = 20;
+									break;
+								case 37:
+									format = 21;
+									break;
+								case 36:
+									format = 22;
+									break;
+								case 28:
+								case 29:
+									if (isPassThrough) {
+										format = 32;
+									} else {
+										format = 38;
+									}
+									break;
+								case 31:
+									format = 39;
+									break;
+								case 30:
+									format = 40;
+									break;
+								case 10:
+									format = 46;
+									break;
+								case 11:
+									format = 47;
+									break;
+								case 13:
+									format = 48;
+									break;
+								case 71:
+								case 72:
+									format = 59;
+									break;
+								case 74:
+								case 75:
+									format = 60;
+									break;
+								case 77:
+								case 78:
+									format = 61;
+									break;
+								case 81:
+									format = 62;
+									break;
+								case 80:
+									format = 63;
+									break;
+								case 84:
+									format = 64;
+									break;
+								case 83:
+									format = 65;
+									break;
+								case 95:
+									format = 66;
+									break;
+								case 98:
+									format = 68;
+									break;
+								default:
+									Assert(0, "Unsupported DDS format detected.");
+									break;
+								}
+							}
+							else
+							{
+								switch(fourCC)
+								{
+								case 36:	//DXGI_FORMAT_R16G16B16A16_UNORM
+									format = 47;
+									break;
+								case 110:	//DXGI_FORMAT_R16G16B16A16_SNORM
+									format = 48;
+									break;
+								case 111:	//DXGI_FORMAT_R16_FLOAT
+									format = 6;
+									break;
+								case 112:	//DXGI_FORMAT_R16G16_FLOAT
+									format = 19;
+									break;
+								case 113:	//DXGI_FORMAT_R16G16B16A16_FLOAT
+									format = 46;
+									break;
+								default:
+									Assert(0, "Unsupported DDS format detected.");
+									break;
+								}
+							}
+						}
+						else
+						{
+							Assert(0, "Unsupported DDS format detected.");
+						}
+						/*
+						if (format != original_format) {
+							Printf("%s/n", repack_folder + filename + "\\" + filename);
+						}
+						*/
+						//Printf("%u\n", format);
+						
+                        FileClose();
+                        //update the header
+					    OpenFileExist(repack_folder + filename + "\\" + filename + ".header");
+					    WriteUShort(64, (ushort)width);
+					    WriteUShort(66, (ushort)height);
+					    WriteUByte(71, (mip_count << 2) | tex_type);
+						WriteUByte(70, format);
+					    FileSave();
+                    }
+					
+
+                    ReadBytes(buffer2, 0, filesize);
+                    FileClose();
+					
+
+                    padding = 0;
+                    if ((filesize) % 16 != 0) {
+                        padding = 16 - (filesize) % 16;
+                        
+                    }
+
+                    
+                    list_filepart[(j + accum_partcount)].offset = list_section_totalsize[list_filepart[(j + accum_partcount)].sectionIndex]; //offset
+                
+                    list_section_totalsize[list_filepart[(j + accum_partcount)].sectionIndex] += filesize + padding;
+    
+                    list_filepart[(j + accum_partcount)].size = filesize; //size
+					
+					OpenFileExist(repack_folder + SPrintf( s, "%d", list_filepart[(j + accum_partcount)].sectionIndex) + ".temp");
+                    InsertBytes(list_filepart[(j + accum_partcount)].offset, filesize + padding, 0);
+                    WriteBytes(buffer2, list_filepart[(j + accum_partcount)].offset, filesize);
+                } else {
+                    OpenFileExist(repack_folder + filename + "\\" + filename + ".dds");
+                    filesize = FileSize();
+                    
+                    //read fourcc
+                    tex_offset = (ReadUInt(84) == 808540228) ? 148 : 128;
+
+                    ReadBytes(buffer2, tex_offset, filesize - tex_offset);
+                    FileClose();
+
+                    padding = 0;
+                    if ((filesize - tex_offset) % 16 != 0) {
+                        padding = 16 - (filesize - tex_offset) % 16;
+                        
+                    }
+                    list_filepart[(j + accum_partcount)].offset = list_section_totalsize[list_filepart[(j + accum_partcount)].sectionIndex];; //offset
+                
+                    list_section_totalsize[list_filepart[(j + accum_partcount)].sectionIndex] += filesize - tex_offset + padding;
+    
+                    list_filepart[(j + accum_partcount)].size = filesize - tex_offset; //size
+
+                    OpenFileExist(repack_folder + SPrintf( s, "%d", list_filepart[(j + accum_partcount)].sectionIndex) + ".temp");
+                    InsertBytes(list_filepart[(j + accum_partcount)].offset, filesize - tex_offset + padding, 0);
+                    WriteBytes(buffer2, list_filepart[(j + accum_partcount)].offset, filesize - tex_offset);
+                }
+            }
+            
+        }
+        accum_partcount += list_filemap[i].partsCount;
+        OpenFileExist(repack_folder + fl.file[i].filename);
+        FileClose();  
+    }
+
+    OpenFileExist(repack_folder + "filename.temp");
+    int table_end = filename_offset + FileSize();
+    padding = (table_end % 16 == 0) ? 0 : (16 - table_end % 16);
+    InsertBytes(FileSize(), padding ,0);
+    FileSave();
+    table_end += padding;
+
+    for (i = 0; i < sectioncount; i++) {
+        list_section[5 + i*8] = list_section_totalsize[i]; //unpackedsize
+        OpenFileExist(repack_folder + SPrintf( s, "%d", i) + ".temp");
+        if (i < 1) {
+            list_section[4 + i*8] = table_end;   //offset
+        } else {
+            list_section[4 + i*8] = list_section_totalsize[i - 1] + list_section[4 + (i-1)*8];   //offset
+        }
+        FileSave();
+    }
+
+    char save_path[] = FileNameGetBase(SubStr(repack_folder, 0, Strlen(repack_folder) - 1 ));
+    char fname[] = save_path;
+    save_path = SubStr(repack_folder, 0, Strlen(repack_folder) - 1 - Strlen(save_path));
+    //Printf("%s", save_path);
+
+    if (FindOpenFile(save_path + fname + ".rpack") != -1) {
+        FileSelect(FindOpenFile(save_path + fname + ".rpack"));
+        FileClose();
+    }
+    DeleteFile(save_path + fname + ".rpack");
+    FileNew("Hex", true);
+    FileSave(save_path + fname + ".rpack");
+    InsertFile(repack_folder + "header.bin", 0);
+    FileSave();
+
+    //Write section
+    for (i = 0; i < sectioncount; i++) {
+        WriteUByte(36 + 0 + i * 20, list_section[0 + i*8]);
+        WriteUByte(36 + 1 + i * 20, list_section[1 + i*8]);
+        WriteUByte(36 + 2 + i * 20, list_section[2 + i*8]);
+        WriteUByte(36 + 3 + i * 20, list_section[3 + i*8]);
+
+        WriteUInt(36 + 4 + i * 20, list_section[4 + i*8] >> 4);
+        WriteUInt(36 + 8 + i * 20, list_section[5 + i*8]);
+        WriteUInt(36 + 12 + i * 20, list_section[6 + i*8]);
+        WriteUShort(36 + 16 + i * 20, list_section[7 + i*8]);
+        WriteUShort(36 + 18 + i * 20, list_section_unk[i]);
+    }
+    FileSave();
+
+    //Write filepart
+    for (i = 0; i < partcount; i++) {
+        WriteUByte(36 + 20 * sectioncount + 0 + i * 16, list_filepart[i].sectionIndex);
+        WriteUByte(36 + 20 * sectioncount + 1 + i * 16, list_filepart[i].unk1);
+
+        WriteUShort(36 + 20 * sectioncount + 2 + i * 16, list_filepart[i].fileIndex);
+        WriteUInt(36 + 20 * sectioncount + 4 + i * 16, list_filepart[i].offset >> 4);
+        WriteUInt(36 + 20 * sectioncount + 8 + i * 16, list_filepart[i].size);
+        WriteUInt(36 + 20 * sectioncount + 12 + i * 16, list_filepart[i].unk2);
+    }
+    FileSave();
+
+    //Write filemap
+    for (i = 0; i < fl.filecount; i++) {
+        WriteUByte(36 + 20 * sectioncount + 16 * partcount + 0 + i * 12, list_filemap[i].partsCount);
+        WriteUByte(36 + 20 * sectioncount + 16 * partcount + 1 + i * 12, list_filemap[i].unk1);
+        WriteUByte(36 + 20 * sectioncount + 16 * partcount + 2 + i * 12, list_filemap[i].filetype);
+        WriteUByte(36 + 20 * sectioncount + 16 * partcount + 3 + i * 12, list_filemap[i].unk2);
+
+        WriteUInt(36 + 20 * sectioncount + 16 * partcount + 4 + i * 12, list_filemap[i].fileIndex);
+        WriteUInt(36 + 20 * sectioncount + 16 * partcount + 8 + i * 12, list_filemap[i].firstPart);
+    }
+    FileSave();
+
+    //Write fname_idx
+    for (i = 0; i < fl.filecount; i++) {
+        WriteUInt(36 + 20 * sectioncount + 16 * partcount + 12 * fl.filecount + 0 + i * 4, list_fname_idx[i]);
+    }
+    FileSave();
+    
+    ptr = 36 + 20 * sectioncount + 16 * partcount + (12 + 4) * fl.filecount;
+
+    //Write filename
+    OpenFileExist(save_path + fname + ".rpack");
+    InsertFile(repack_folder + "filename.temp", ptr);
+    FileSave();
+    OpenFileExist(repack_folder + "filename.temp");
+    ptr += FileSize();
+    FileClose();
+    DeleteFile(repack_folder + "filename.temp");
+
+    //Write Section Data
+    for (i = 0; i < sectioncount; i++) {
+        OpenFileExist(save_path + fname + ".rpack");
+        InsertFile(repack_folder + SPrintf( s, "%d", i) + ".temp", ptr);
+        FileSave();
+        OpenFileExist(repack_folder + SPrintf( s, "%d", i) + ".temp");
+        ptr += FileSize();
+        FileClose();
+        DeleteFile(repack_folder + SPrintf( s, "%d", i) + ".temp");
+    }
+    OpenFileExist(repack_folder + "header.bin");
+    FileClose();
+}
+
+//texture split doesnt work

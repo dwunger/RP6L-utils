@@ -1,0 +1,498 @@
+//dds header writer
+int isDXT10 = 1;
+//int headerSize = 124;
+int bpp = 0;
+int isCompressed = 0;
+
+uint pitch = 0;
+//string s;
+
+uint DDSD_CAPS           = 0x00000001;
+uint DDSD_HEIGHT         = 0x00000002;
+uint DDSD_WIDTH          = 0x00000004;
+uint DDSD_PITCH          = 0x00000008;
+uint DDSD_PIXELFORMAT    = 0x00001000;
+uint DDSD_MIPMAPCOUNT    = 0x00020000;
+uint DDSD_LINEARSIZE     = 0x00080000;
+uint DDSD_DEPTH          = 0x00800000;
+
+uint DDSCAPS_COMPLEX     = 0x00000008;
+uint DDSCAPS_TEXTURE     = 0x00001000;
+uint DDSCAPS_MIPMAP      = 0x00400000;
+uint DDSCAPS2_VOLUME     = 0x00200000;
+uint DDSCAPS2_CUBEMAP    = 0x00000200;
+uint DDSCAPS2_CUBEMAP_ALL_FACES = 0x0000FC00;
+
+uint DDPF_ALPHAPIXELS    = 0x00000001;
+uint DDPF_ALPHA          = 0x00000002;
+uint DDPF_FOURCC         = 0x00000004;
+uint DDPF_RGB            = 0x00000040;
+uint DDPF_NORMAL         = 0x80000000;
+
+
+uint computePitch(uint width, uint height, int bpp, int isCompressed) {
+	if (isCompressed == 1) {
+		uint pitch = ((width + 3) / 4) * ((height + 3) / 4) * bpp * 2;	//because of uint it will auto math floor
+	} else {
+		uint pitch = ( width * bpp + 7 ) / 8;
+	}
+	return pitch;
+}
+
+//required flags for dds
+uint flags = 0, hasFOURCC = 0;
+void dds_Generate(uint width, uint height, uint mip_count, uint format, uint tex_type, uint depth) {
+    InsertBytes(0, 4 + 124, 0);
+	isDXT10 = 0;
+	isCompressed = 0;
+	hasFOURCC = 0;
+	flags = DDSD_CAPS | DDSD_PIXELFORMAT | DDSD_WIDTH | DDSD_HEIGHT | DDSD_MIPMAPCOUNT;
+	//bits per pixels
+	switch(format) {
+		case 0:
+		case 1:
+		case 5:
+			bpp = 8;	//R8_UNORM, R8_SNORM, R8_UNORM
+			flags = flags | DDSD_PITCH;
+			break;
+		case 7:
+		case 8:
+		case 10:
+		case 15:
+		case 16:
+		case 17:
+			bpp = 16;	//R16_UNORM, R16_SNORM, R16_SINT, R8G8_UNORM, R8G8_SNORM
+			flags = flags | DDSD_PITCH;
+			break;
+		case 20:
+		case 21:
+		case 22:
+		case 32:
+		case 38:
+		case 39:
+		case 40:
+			bpp = 32;	//R16G16_UNORM, R16G16_SNORM, R16G16_UINT, R8G8B8A8_UNORM, R8G8B8A8_SNORM, R8G8B8A8_UINT
+			flags = flags | DDSD_PITCH;
+			break;
+		case 46:
+		case 47:
+		case 48:
+			bpp = 64;	//R16G16B16A16_FLOAT, R16G16B16A16_UNORM, R16G16B16A16_SNORM
+			flags = flags | DDSD_PITCH;
+			break;
+		case 59:
+		case 62:
+		case 63:
+			bpp = 4;	//BC1_UNORM, BC4_SNORM, BC4_UNORM
+			isDXT10 = 0;
+			isCompressed = 1;
+			flags = flags | DDSD_LINEARSIZE;
+			hasFOURCC = 1;
+			break;
+		case 64:
+		case 65:
+		case 66:
+		case 68:
+			bpp = 8;	//BC5_SNORM, BC5_UNORM, BC6H_UF16, BC7_UNORM
+			isCompressed = 1;
+			flags = flags | DDSD_LINEARSIZE;
+			hasFOURCC = 2;
+			break;
+		default:
+			Assert(0, "Unsupported texture format detected.");
+			break;
+	}
+    
+	if (depth > 1) {
+		flags = flags | DDSD_DEPTH;
+	}
+	
+    WriteUInt(0, 542327876);    //DDS 
+    WriteUInt(4, 124);    //generic headerSize
+    
+    
+    WriteUInt(8, flags); //flags
+	WriteUInt(12, height);	//height
+	WriteUInt(16, width);	//width
+	WriteUInt(20, computePitch(width, height, bpp, isCompressed)); //pitch
+	WriteUInt(24, depth); //depth
+	WriteUInt(28, mip_count);	//mip_count
+	
+	//reserverd[11] 44 Bytes
+	//ddspf
+	WriteUInt(76, 32); //size
+	
+	flags = DDPF_FOURCC;
+	//use DX10 for uncompressed and except dxt1
+	WriteUInt(80, flags); 	//flags
+
+	if (format == 59) {
+		WriteUInt(84, 827611204);
+	} else {
+		WriteUInt(84, 808540228);
+		InsertBytes(128, 20, 0);
+	}
+	
+	//caps
+	flags = DDSCAPS_TEXTURE;
+	if (mip_count > 1) {
+		flags = flags | DDSCAPS_COMPLEX;
+	}
+	
+	if (depth > 1) {
+		flags = flags | DDSCAPS_COMPLEX;
+	}
+	
+	if (tex_type != 0) {
+		flags = flags | DDSCAPS_COMPLEX;
+	}
+	WriteUInt(108, flags);
+	
+	//caps2
+    flags = 0;
+	if (tex_type == 1) {
+		flags = DDSCAPS2_CUBEMAP;
+	} else if (tex_type == 2) {
+		flags = DDSCAPS2_VOLUME;
+	}
+	WriteUInt(112, flags);
+	
+    if (format != 59) {
+	    //dxt10 header
+	    switch (format) {
+		    case 0: //R8_UNORM
+			    format = 61;
+			    break;
+		    case 1: //R8_SNORM
+			    format = 63;
+			    break;
+		    case 5: //R8_UNORM 
+			    format = 61;
+			    break;
+		    case 7: //R16_UNORM
+			    format = 56;
+			    break;
+		    case 8: //R16_SNORM
+			    format = 58;
+			    break;
+		    case 10:    //R16_SINT
+			    format = 59;
+			    break;
+		    case 15:    //R8G8_UNORM
+			    format = 49;
+			    break;
+		    case 16:    //R8G8_SNORM
+			    format = 51;
+			    break;
+		    case 17:    //R8G8_UINT
+			    format = 50;
+			    break;
+		    case 20:    //R16G16_UNORM
+			    format = 35;
+			    break;
+		    case 21:    //R16G16_SNORM
+			    format = 37;
+			    break;
+		    case 22:    //R16G16_UINT
+			    format = 36;
+			    break;
+		    case 32:    //R8G8B8A8_UNORM 
+			    format = 28;
+			    break;
+		    case 38:    //R8G8B8A8_UNORM
+			    format = 28;
+			    break;
+		    case 39:    //R8G8B8A8_SNORM
+			    format = 31;
+			    break;
+		    case 40:    //R8G8B8A8_UINT
+			    format = 30;
+			    break;
+		    case 46:    //R16G16B16A16_FLOAT
+			    format = 10;
+			    break;
+		    case 47:    //R16G16B16A16_UNORM
+			    format = 11;
+			    break;
+		    case 48:    //R16G16B16A16_SNORM
+			    format = 13;
+			    break;
+		    case 59:    //BC1_UNORM
+			    format = 71;
+			    break;
+		    case 62:    //BC4_SNORM
+			    format = 81;
+			    break;
+		    case 63:    //BC4_UNORM
+			    format = 80;
+			    break;
+		    case 64:    //BC5_SNORM
+			    format = 84;
+			    break;
+		    case 65:    //BC5_UNORM
+			    format = 83;
+			    break;
+		    case 66:    //BC6H_UF16
+			    format = 95;
+			    break;
+		    case 68:    //BC7_UNORM
+			    format = 98;
+			    break;
+		    default:
+                Assert(0, "Unsupported DDS format detected.");
+			    break;
+	    }
+	    WriteUInt(128, format);	//dxgiFormat
+	    if (tex_type == 2) {
+		    WriteUInt(132, 4);
+	    } else {
+		    WriteUInt(132, 3);
+	    }
+	    
+	    if (tex_type == 1) {
+		    WriteUInt(136, 4);	//miscFlag
+	    }
+	    WriteUInt(140, 1);	//arraySize
+    }
+	
+}
+
+void OpenFileExist(char path[]) {
+    if (FindOpenFile(path) != -1) {
+        FileSelect(FindOpenFile(path));
+    } else {
+        FileOpen(path, false, "Hex", false);
+    }
+}
+
+char rpack[] = InputOpenFileName("Select a file to unpack", "rpack (*.rpack)", "");
+Assert((Strcmp(rpack, "") != 0), "rpack file not selected.");
+OpenFileExist(rpack);
+
+//Printf("%s\n", rpack);
+
+RunTemplate("rp6l.bt");
+int i,j;
+string s,savepath;
+//should be enough for textures
+uchar buffer[20000000+80];
+char rpack_name[] = FileNameGetBase(rpack);
+char rpack_name_no_ext[] = SubStr(rpack_name, 0, Strlen(rpack_name) - 6);
+char rpack_path[] = FileNameGetPath(rpack);
+
+//Printf("%s\n%s\n%s\n", rpack_name, rpack_name_no_ext, rpack_path);
+
+uint64 file_offset,file_size,filename_offset;
+filename_offset = 36 + 20 * header.sections + 16 * header.parts + header.files * (12 + 4);
+//Printf("%i", filename_offset);
+//Printf("%s %s\n", rpack_path, rpack_name);
+
+string GetResourceName(int fileIndex) {
+    string filename = ReadString(fname_idx[fileIndex].offset + filename_offset);
+    return filename;
+}
+//Printf("%s %s", GetResourceName(112), GetResourceName(3));
+
+string GetResourceSavePath(string ResourceName, int Part, int IsTexture) {
+    string savepath = rpack_path + rpack_name_no_ext + "_unpack\\" + ResourceName + "\\";
+
+    MakeDir(savepath);
+    if (IsTexture == 1) {
+        savepath += ResourceName;
+    } else {
+        savepath += SPrintf( s, "%d", Part) + "_" + ResourceName;
+    }
+    return savepath;
+}
+
+//char RawtexCMD[] = InputOpenFileName("Select RawtexCmd.exe", "EXE (*.exe)", "RawtexCmd.exe");
+//Assert((Strcmp(RawtexCMD, "") != 0), "Required program not found.");
+//char arg[];
+
+//Printf("%s", RawtexCMD);
+
+
+int IsTexture = 0;
+int headerSize, headerType, width, height, format, mip_count, depth, tex_type;
+
+//Printf("%s", GetResourceSavePath(GetResourceName(2), 0, 0));
+        
+
+for (i = 0; i < header.files; i++) {
+    for (j = 0; j < filemap[i].partsCount; j++) {
+        OpenFileExist(rpack);
+        //File Size
+        file_size = filepart[filemap[i].firstPart + j].size;
+        //File Offset
+        file_offset = filepart[filemap[i].firstPart + j].offset;
+        file_offset = file_offset << 4;
+        file_offset = file_offset + (section[filepart[filemap[i].firstPart + j].sectionIndex].offset << 4);
+        //Detect if compressed
+        Assert((section[filepart[filemap[i].firstPart + j].sectionIndex].packedsize == 0), "Can not extract compressed files, extraction aborted");
+        //Extract
+        IsTexture = (filemap[i].filetype == 32) ? 1 : 0;
+        savepath = GetResourceSavePath(GetResourceName(i), j, IsTexture);
+
+        //as it turns out it's not always 80 bytes so disabled
+        //read the width&height in the header to determine the header type
+        //Printf("%s\n", GetResourceName(i));
+        if (IsTexture == 1) {
+            if (j == 0) {
+                FileSaveRange(savepath + ".header", file_offset, file_size);
+                headerSize = ReadUInt(file_offset + 8);
+                headerType = ReadUInt(file_offset + 64);
+                width = ReadUShort(file_offset + 64);
+                height = ReadUShort(file_offset + 66);
+                format = ReadUByte(file_offset + 70);
+                depth = ReadUByte(file_offset + 68);
+                mip_count = (ReadUByte(file_offset + 71) >> 2);
+                tex_type = (ReadUByte(file_offset + 71) & 0x03);    // 0 = 2d, 1 = cubemap, 2 = 3d
+            } else {
+                if (headerType != 0) {
+                    FileSaveRange(savepath + ".dds", file_offset, file_size);
+                    OpenFileExist(savepath + ".dds");
+                    dds_Generate( width,  height,  mip_count,  format,  tex_type,  depth);
+                    FileSave();
+                    FileClose();
+
+/*
+	                switch (format) {
+		                case 0: //R8_UNORM
+			                format = 61;
+			                break;
+		                case 1: //R8_SNORM
+			                format = 63;
+			                break;
+		                case 5: //R8_UNORM 
+			                format = 61;
+			                break;
+		                case 7: //R16_UNORM
+			                format = 56;
+			                break;
+		                case 8: //R16_SNORM
+			                format = 58;
+			                break;
+		                case 10:    //R16_SINT
+			                format = 59;
+			                break;
+		                case 15:    //R8G8_UNORM
+			                format = 49;
+			                break;
+		                case 16:    //R8G8_SNORM
+			                format = 51;
+			                break;
+		                case 17:    //R8G8_UINT
+			                format = 50;
+			                break;
+		                case 20:    //R16G16_UNORM
+			                format = 35;
+			                break;
+		                case 21:    //R16G16_SNORM
+			                format = 37;
+			                break;
+		                case 22:    //R16G16_UINT
+			                format = 36;
+			                break;
+		                case 32:    //R8G8B8A8_UNORM 
+			                format = 28;
+			                break;
+		                case 38:    //R8G8B8A8_UNORM
+			                format = 28;
+			                break;
+		                case 39:    //R8G8B8A8_SNORM
+			                format = 31;
+			                break;
+		                case 40:    //R8G8B8A8_UINT
+			                format = 30;
+			                break;
+		                case 46:    //R16G16B16A16_FLOAT
+			                format = 10;
+			                break;
+		                case 47:    //R16G16B16A16_UNORM
+			                format = 11;
+			                break;
+		                case 48:    //R16G16B16A16_SNORM
+			                format = 13;
+			                break;
+		                case 59:    //BC1_UNORM
+			                format = 71;
+			                break;
+		                case 62:    //BC4_SNORM
+			                format = 81;
+			                break;
+		                case 63:    //BC4_UNORM
+			                format = 80;
+			                break;
+		                case 64:    //BC5_SNORM
+			                format = 84;
+			                break;
+		                case 65:    //BC5_UNORM
+			                format = 83;
+			                break;
+		                case 66:    //BC6H_UF16
+			                format = 95;
+			                break;
+		                case 68:    //BC7_UNORM
+			                format = 98;
+			                break;
+		                default:
+                            Assert(0, "Unsupported texture format detected.");
+			                break;
+	                }
+*/
+
+                    //arg = ("\"" + savepath + ".bin\" " + SPrintf( s, "%d 0 %d %d", format, width, height));
+                    //Printf( "%s %u %u\n", savepath, width, height);
+                    //Printf( "%s\n", arg );
+                    //Convert to dds
+                    //Exec(RawtexCMD, arg, false);
+                   
+                    
+                }
+            }
+        } else {
+            FileSaveRange(savepath, file_offset, file_size);
+        }
+        FileSelect(FindOpenFileW(rpack_path + rpack_name));
+    }
+}
+
+
+//header.bin
+FileSaveRange(rpack_path + rpack_name_no_ext + "_unpack\\header.bin", 0, 36);
+
+//section.bin
+buffer[0] = header.sections;
+for (i = 0; i < header.sections; i++) {
+    buffer[5*i + 1] = section[i].filetype;
+    buffer[5*i + 2] = section[i].type2;
+    buffer[5*i + 3] = section[i].type3;
+    buffer[5*i + 4] = section[i].type4;
+    buffer[5*i + 5] = section[i].unk;
+}
+uint buffersize = header.sections * 5 + 1;
+FileSaveRange(rpack_path + rpack_name_no_ext + "_unpack\\section.bin", 0, 0);
+FileOpen(rpack_path + rpack_name_no_ext + "_unpack\\section.bin", false, "Hex", false);
+WriteBytes(buffer, 0, buffersize);
+FileSave();
+FileClose();
+FileSelect(FindOpenFileW(rpack_path + rpack_name));
+
+//file desc
+for (i = 0; i < header.files; i++) {
+    buffer[0] = filemap[i].partsCount;
+    buffer[1] = filemap[i].filetype;
+    buffer[2] = filemap[i].unk2;
+    for (j = 0; j < filemap[i].partsCount; j++) {
+        buffer[3 + j * 2] =filepart[filemap[i].firstPart + j].sectionIndex;
+        buffer[4 + j * 2] =filepart[filemap[i].firstPart + j].unk1;
+    }
+    buffersize = 3 + filemap[i].partsCount * 2;
+    savepath = rpack_path + rpack_name_no_ext + "_unpack\\" + GetResourceName(i) + ".desc";
+    FileSaveRange(savepath, 0, 0);
+    FileOpen(savepath, false, "Hex", false);
+    WriteBytes(buffer, 0, buffersize);
+    FileSave();
+    FileClose();
+    FileSelect(FindOpenFileW(rpack_path + rpack_name));
+}
