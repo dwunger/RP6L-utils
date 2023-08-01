@@ -37,18 +37,18 @@ def compute_pitch(width, height, bpp, is_compressed):
     return pitch
 
 # This will be a global FileManager instance that we will use to keep track of opened files
-file_manager = FileManager()
+fm = FileManager()
 
 def dds_generate(width, height, mip_count, format, tex_type, depth, file_path):
     # Open file with FileManager
-    file_manager.open_file(file_path)
+    fm.open_file(file_path)
 
     # Clear the flags and hasFOURCC variables
     flags = 0
     hasFOURCC = 0
 
     # Insert 128 bytes of 0 at the beginning of the file
-    file_manager.insert_bytes(file_path, 0, 128, 0)
+    fm.insert_bytes(file_path, 0, 128, 0)
 
     # Reset these variables as we don't have corresponding definitions in this context
     isDXT10 = 0
@@ -79,27 +79,27 @@ def dds_generate(width, height, mip_count, format, tex_type, depth, file_path):
     if depth > 1:
         flags |= DDSD_DEPTH
 
-    file_manager.write_uint(0, 542327876)  # DDS
-    file_manager.write_uint(4, 124)  # generic headerSize
-    file_manager.write_uint(8, flags)  # flags
-    file_manager.write_uint(12, height)  # height
-    file_manager.write_uint(16, width)  # width
-    file_manager.write_uint(20, compute_pitch(width, height, bpp, isCompressed))  # pitch
-    file_manager.write_uint(24, depth)  # depth
-    file_manager.write_uint(28, mip_count)  # mip_count
+    fm.write_uint(0, 542327876)  # DDS
+    fm.write_uint(4, 124)  # generic headerSize
+    fm.write_uint(8, flags)  # flags
+    fm.write_uint(12, height)  # height
+    fm.write_uint(16, width)  # width
+    fm.write_uint(20, compute_pitch(width, height, bpp, isCompressed))  # pitch
+    fm.write_uint(24, depth)  # depth
+    fm.write_uint(28, mip_count)  # mip_count
 
     # reserved[11] 44 Bytes
     # ddspf
-    file_manager.write_uint(76, 32)  # size
+    fm.write_uint(76, 32)  # size
     flags = DDPF_FOURCC
     # use DX10 for uncompressed and except dxt1
-    file_manager.write_uint(80, flags)  # flags
+    fm.write_uint(80, flags)  # flags
 
     if format == 59:
-        file_manager.write_uint(84, 827611204)
+        fm.write_uint(84, 827611204)
     else:
-        file_manager.write_uint(84, 808540228)
-        file_manager.insert_bytes(file_path, 128, 20, 0)
+        fm.write_uint(84, 808540228)
+        fm.insert_bytes(file_path, 128, 20, 0)
 
     # caps
     flags = DDSCAPS_TEXTURE
@@ -112,7 +112,7 @@ def dds_generate(width, height, mip_count, format, tex_type, depth, file_path):
     if tex_type != 0:
         flags |= DDSCAPS_COMPLEX
 
-    file_manager.write_uint(108, flags)
+    fm.write_uint(108, flags)
 
     # caps2
     flags = 0
@@ -121,7 +121,7 @@ def dds_generate(width, height, mip_count, format, tex_type, depth, file_path):
     elif tex_type == 2:
         flags = DDSCAPS2_VOLUME
 
-    file_manager.write_uint(112, flags)
+    fm.write_uint(112, flags)
 
     format_conversion = {
         0: 61, 1: 63, 5: 61, 7: 56, 8: 58, 10: 59, 15: 49, 16: 51, 17: 50,
@@ -136,23 +136,23 @@ def dds_generate(width, height, mip_count, format, tex_type, depth, file_path):
         # Handle unsupported DDS format
         raise ValueError("Unsupported DDS format detected.")
 
-    file_manager.write_uint(128, format)  # dxgiFormat
+    fm.write_uint(128, format)  # dxgiFormat
     if tex_type == 2:
-        file_manager.write_uint(132, 4)
+        fm.write_uint(132, 4)
     else:
-        file_manager.write_uint(132, 3)
+        fm.write_uint(132, 3)
 
     if tex_type == 1:
-        file_manager.write_uint(136, 4)  # miscFlag
+        fm.write_uint(136, 4)  # miscFlag
 
-    file_manager.write_uint(140, 1)  # arraySize
-    file_manager.close_file(file_path)
+    fm.write_uint(140, 1)  # arraySize
+    fm.close_file(file_path)
 
 def open_file_exist(path):
-    if file_manager.find_open_file(path):
-        file_manager.select_file(path)
+    if fm.find_open_file(path):
+        fm.select_file(path)
     else:
-        file_manager.open_file(path, 'rb+')
+        fm.open_file(path, 'rb+')
 
 def parse_binary_file(file_content):
     header_format = '<IIBBBBIIIIII'  # struct format for the header, '<' indicates little endian
@@ -178,9 +178,11 @@ def parse_binary_file(file_content):
     offset += struct.calcsize(filemap_format) * header[8]
 
     # Parse the fname_idxs
-    fname_idxs = unpack_items(file_content, header[9], fname_idx_format, offset)
-    offset += struct.calcsize(fname_idx_format) * header[9]
-
+    fname_idxs = unpack_items(file_content, header[10], fname_idx_format, offset)
+    offset += struct.calcsize(fname_idx_format) * header[10]
+    # TODO: figure out why fname_idx captures extra members. 
+    # fname_idxs = fname_idxs[0:len(fileparts)]
+    
     # Calculate the offset where the file names start
     filename_offset = offset
 
@@ -200,9 +202,14 @@ header, sections, fileparts, filemaps, fname_idxs, filename_offset = parse_binar
 rpack_name = os.path.basename(rpack)
 rpack_name_no_ext = os.path.splitext(rpack_name)[0]
 rpack_path = os.path.dirname(rpack)    
+print('#########################')
+print('#########################')
+print('######FNAME_INDICES######')
 for idx, fname_idx in enumerate(fname_idxs):
-    #nice! Here is the problem. fname_idx extends further than expected
     print(f"{idx} : {fname_idx}") 
+print('#########################')
+print('#########################')
+print('#########################')
 # def get_resource_name(file_index, fname_idxs, file_content, filename_offset):
 #     offset = fname_idxs[file_index].offset + filename_offset
 #     filename = file_content[offset:].split(b'\x00')[0]  # Read until null byte
@@ -230,8 +237,7 @@ def get_resource_save_path(resource_name, part, is_texture):
 
     return save_path
 print(sections[0])
-is_texture = False
-header_size = header_type = width = height = format = mip_count = depth = tex_type = 0
+
 print('#####header#####')
 print(f"Sig:        {header[0]}")
 print(f"ver:        {header[1]}")
@@ -257,7 +263,8 @@ print(f"packedsize:    {sections[0][6]}")
 print(f"resoucecount:  {sections[0][7]}")
 print(f"unk:           {sections[0][8]}")
 
-
+is_texture = False
+header_size = header_type = width = height = format = mip_count = depth = tex_type = 0
 
 # pprint(sections)
 for i in range(header[8]):  # header.files
@@ -268,6 +275,7 @@ for i in range(header[8]):  # header.files
         # print(header)
         print(f"sections length: {len(sections)}")
         print(f"fileparts length: {len(fileparts)}")
+        print(f"fnames_idx length: {len(fname_idxs)}")
         print(f"filemaps length: {len(filemaps)}")
         print(f"i: {i}, j: {j}, filemaps[i][5] + j: {filemaps[i][5] + j}, fileparts[filemaps[i][5] + j][0]: {fileparts[filemaps[i][5] + j][0]}")
 
@@ -288,22 +296,34 @@ for i in range(header[8]):  # header.files
         # print(f"{resource_name}\n")
         if is_texture:
             if j == 0:
-                file_manager.file_save_range(savepath + ".header", file_offset, file_size, rpack)
-                header_size = file_manager.read_uint(file_offset + 8, rpack)
-                header_type = file_manager.read_uint(file_offset + 64, rpack)
-                width = file_manager.read_ushort(file_offset + 64, rpack)
-                height = file_manager.read_ushort(file_offset + 66, rpack)
-                format = file_manager.read_ubyte(file_offset + 70, rpack)
-                depth = file_manager.read_ubyte(file_offset + 68, rpack)
-                mip_count = file_manager.read_ubyte(file_offset + 71, rpack) >> 2
-                tex_type = file_manager.read_ubyte(file_offset + 71, rpack) & 0x03  # 0 = 2d, 1 = cubemap, 2 = 3d
+                fm.select_file(rpack)
+                open_file_exist(savepath + ".header")
+                fm.save_file_range(savepath + ".header", file_offset, file_size)
+                header_size = fm.read_uint(file_offset + 8, rpack)
+                header_type = fm.read_uint(file_offset + 64, rpack)
+                width = fm.read_ushort(file_offset + 64, rpack)
+                height = fm.read_ushort(file_offset + 66, rpack)
+                format = fm.read_ubyte(file_offset + 70, rpack)
+                depth = fm.read_ubyte(file_offset + 68, rpack)
+                mip_count = fm.read_ubyte(file_offset + 71, rpack) >> 2
+                tex_type = fm.read_ubyte(file_offset + 71, rpack) & 0x03  # 0 = 2d, 1 = cubemap, 2 = 3d
             else:
                 if header_type != 0:
-                    file_manager.file_save_range(savepath + ".dds", file_offset, file_size, rpack)
-                    open_file_exist(savepath + ".dds")
+                    # fm.save_file_range(savepath + ".dds", file_offset, file_size, rpack)
+                    # fm.select_file(rpack)
+                    #!
+                    open_file_exist(savepath + ".dds")                   
+                    fm.save_file_range(savepath + ".dds", file_offset, file_size)
+
+                    
                     dds_generate(width, height, mip_count, format, tex_type, depth, savepath + ".dds")
-                    file_manager.save_file(savepath + ".dds")
-                    file_manager.close_file(savepath + ".dds")
+                    fm.save_file(savepath + ".dds")
+                    fm.close_file(savepath + ".dds")
         else:
-            file_manager.file_save_range(savepath, file_offset, file_size, rpack)
-        file_manager.select_file(file_manager.find_open_file(Path(rpack_path) / rpack_name))
+            open_file_exist(savepath) 
+            fm.select_file(rpack)
+            fm.save_file_range(savepath, file_offset, file_size)
+            
+        if fm.find_open_file(Path(rpack_path) / rpack_name):
+            fm.select_file(Path(rpack_path) / rpack_name)
+
