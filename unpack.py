@@ -154,14 +154,6 @@ def open_file_exist(path):
     else:
         file_manager.open_file(path, 'rb+')
 
-def unpack_items(file_content, num_items, format_string, offset):
-    items = []
-    item_size = struct.calcsize(format_string)
-    for _ in range(num_items):
-        item = struct.unpack_from(format_string, file_content, offset=offset)
-        items.append(item)
-        offset += item_size
-    return items
 def parse_binary_file(file_content):
     header_format = '<IIBBBBIIIIII'  # struct format for the header, '<' indicates little endian
     section_format = '<BBBBIIIHH'  # struct format for the section
